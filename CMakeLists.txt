@@ -9,4 +9,14 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_ARCHITECTURES 120)
 
+
+
 add_executable(device_info src/device_info.cu)
+
+add_executable(inspect_checkpoint src/inspect_checkpoint.cpp)
+
+target_include_directories(
+    inspect_checkpoint
+    PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
