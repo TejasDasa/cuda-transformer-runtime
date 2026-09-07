@@ -13,7 +13,11 @@ set(CMAKE_CUDA_ARCHITECTURES 120)
 
 add_executable(device_info src/device_info.cu)
 
-add_executable(inspect_checkpoint src/inspect_checkpoint.cpp)
+add_executable(
+    inspect_checkpoint 
+    src/inspect_checkpoint.cpp
+    src/mapped_file.cpp
+)
 
 target_include_directories(
     inspect_checkpoint
