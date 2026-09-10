@@ -1,11 +1,13 @@
 #include "model_config.hpp"
 #include "mapped_file.hpp"
 #include "model_weights.hpp"
+#include "cpu_ops.hpp"
 #include <iostream>
 #include <cstring>
 #include <cstddef>
 #include <iomanip>
 #include <string>
+#include <vector>
 
 using std::uint64_t;
 
@@ -84,7 +86,7 @@ int main(int argc, char *argv[])
         std::cerr << "Error: incomplete checkpoint header\n";
         return 1;
     }
-        
+
     */
 
 
@@ -100,11 +102,7 @@ int main(int argc, char *argv[])
 
         ModelConfig config{};
 
-        std::memcpy(
-            &config,
-            checkpoint.data(),
-            sizeof(config)
-        );
+        std::memcpy(&config, checkpoint.data(), sizeof(config));
 
         if (!validate_config(config)) {
             return 1;
@@ -186,6 +184,7 @@ int main(int argc, char *argv[])
 
 
 
+        // Load pointers to each tensor into the weights struct
         ModelWeights weights{};
 
         const std::byte* file_begin = static_cast<const std::byte*>(checkpoint.data());
@@ -245,7 +244,6 @@ int main(int argc, char *argv[])
             std::cout << std::left << std::setw(30) << (std::string(name) + ":") << offset << '\n';
         };
 
-
         print_offset("Token Embeddings offset", weights.token_embedding_table);
         print_offset("Attention RMSNorm offset", weights.rms_att_weight);
         print_offset("Wq offset", weights.wq);
@@ -270,11 +268,65 @@ int main(int argc, char *argv[])
         std::cout << "Mapped file bytes:            " << checkpoint.size() << '\n';
         std::cout << "All bytes accounted for:      " << std::boolalpha << bytes_match << '\n';
 
-        std::cout << "Classifier shares embeddings: " << (weights.wcls == weights.token_embedding_table) << '\n';
+        std::cout << "Classifier shares embeddings: " << (weights.wcls == weights.token_embedding_table) << '\n' << '\n';
 
         if (!bytes_match) {
             std::cerr << "Error: tensor cursor does not reach the file end\n";
             return 1;
+        }
+
+
+
+
+        // Replace with tokenization later, for now loads defined vector id with token embeddings
+        int token_id = 42;
+
+        if (static_cast<uint64_t>(token_id) > vocab_count || token_id < 0) {
+            std::cerr << "Error: Token out of vocab range\n";
+            return 1;
+        }
+
+        std::vector<float> x(config.dim);
+
+        const float* row = weights.token_embedding_table + (config.dim * static_cast<std::size_t>(token_id));
+
+        for (int i = 0; i < config.dim; i++) {
+            x[i] = row[i];
+        }
+
+        std::cout << "First 8 elements of embedding vector:\n";
+        for (int i = 0; i < 8; i++) {
+            std::cout << ' ' << x[i] << "\n";
+        }
+
+
+
+
+        // RMSNorm applied to embedding vec (layer 1)
+        std::vector<float> normalized(config.dim);
+
+        rmsnorm(normalized.data(), x.data(), weights.rms_att_weight, config.dim, 1e-5f);
+
+        std::cout << '\n' << "Input       Output\n";
+        for (int i = 0; i < 8; i++) {
+            std::cout << x[i] << "       " << normalized[i] << '\n';
+        }
+
+
+
+        // Layer 1 QKV computation
+        std::vector<float> q(config.dim);
+        std::vector<float> k(kv_dim);
+        std::vector<float> v(kv_dim);
+
+        matvec(q.data(), weights.wq, normalized.data(), config.dim, config.dim);
+        matvec(k.data(), weights.wk, normalized.data(), kv_dim, config.dim);
+        matvec(v.data(), weights.wv, normalized.data(), kv_dim, config.dim);
+
+        std::cout << '\n' << "Q  K  V\n";
+
+        for (int i = 0; i < 8; i++) {
+            std::cout << q[i] << "  " << k[i] << "  " << v[i] << '\n';
         }
     }
 

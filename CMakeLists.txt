@@ -17,6 +17,7 @@ add_executable(
     inspect_checkpoint 
     src/inspect_checkpoint.cpp
     src/mapped_file.cpp
+    src/cpu_ops.cpp
 )
 
 target_include_directories(
@@ -24,3 +25,11 @@ target_include_directories(
     PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+add_executable(test_rmsnorm src/test_rmsnorm.cpp src/cpu_ops.cpp)
+target_include_directories(test_rmsnorm PRIVATE include)
+
+add_executable(test_matvec src/test_matvec.cpp src/cpu_ops.cpp)
+target_include_directories(test_matvec PRIVATE include)
+
+add_executable(test_rmsnorm_cuda src/test_rmsnorm_cuda.cu)
