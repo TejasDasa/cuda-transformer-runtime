@@ -6,36 +6,39 @@
 #include "cuda_ops.hpp"
 
 
-
 int main()
 {
-    constexpr int size = 289;
-    float epsilon = 1e-5f;
+    constexpr int rows = 7;
+    constexpr int cols = 289;
 
-    float input[size]{};
-    float weights[size]{};
-    float output[size]{};
-    float recovered[size]{};
+    float matrix[rows*cols]{};
+    float input[cols]{};
+    float recovered[rows]{};
+    float output[rows]{};
 
     float* d_input = nullptr;
-    float* d_weights = nullptr;
+    float* d_matrix = nullptr;
     float* d_output = nullptr;
 
-    for (int j = 0; j < size; j++) {
+
+    for (int j = 0; j < cols; j++) {
         input[j] = static_cast<float>((j % 17) - 8) * 0.1f;
-        weights[j] = 0.5f + static_cast<float>(j % 7) * 0.1f;
     }
 
-    // Allocate mem in GPU
-    cudaError_t input_status = cudaMalloc(&d_input, sizeof(input));
-    if (input_status != cudaSuccess) {
-        std::cerr << cudaGetErrorString(input_status) << '\n';
+    for (int k = 0; k < rows * cols; k++) {
+        matrix[k] = static_cast<float>((k % 13) - 6) * 0.05f;
+    }
+
+    
+    cudaError_t input_alloc_status = cudaMalloc(&d_input, sizeof(input));
+    if (input_alloc_status != cudaSuccess) {
+        std::cerr << cudaGetErrorString(input_alloc_status) << '\n';
         return 1;
     }
 
-    cudaError_t weights_status = cudaMalloc(&d_weights, sizeof(weights));
-    if (weights_status != cudaSuccess) {
-        std::cerr << cudaGetErrorString(weights_status) << '\n';
+    cudaError_t matrix_alloc_status = cudaMalloc(&d_matrix, sizeof(matrix));
+    if (matrix_alloc_status !=  cudaSuccess) {
+        std::cerr << cudaGetErrorString(matrix_alloc_status) << '\n';
         cudaFree(d_input);
         return 1;
     }
@@ -44,74 +47,69 @@ int main()
     if (output_status != cudaSuccess) {
         std::cerr << cudaGetErrorString(output_status) << '\n';
         cudaFree(d_input);
-        cudaFree(d_weights);
+        cudaFree(d_matrix);
         return 1;
     }
 
 
 
-    // Copy input and weights into GPU mem
-    cudaError_t copy_input_status = cudaMemcpy(d_input, input, sizeof(input), cudaMemcpyHostToDevice);
-    if (copy_input_status != cudaSuccess) {
-        std::cerr << cudaGetErrorString(copy_input_status) << '\n';
+    cudaError_t input_copy_status = cudaMemcpy(d_input, input, sizeof(input), cudaMemcpyHostToDevice);
+    if (input_copy_status != cudaSuccess) {
+        std::cerr << cudaGetErrorString(input_copy_status) << '\n';
         cudaFree(d_input);
-        cudaFree(d_weights);
+        cudaFree(d_matrix);
         cudaFree(d_output);
         return 1;
     }
 
-    cudaError_t copy_weights_status = cudaMemcpy(d_weights, weights, sizeof(weights), cudaMemcpyHostToDevice);
-    if (copy_weights_status != cudaSuccess) {
-        std::cerr << cudaGetErrorString(copy_weights_status) << '\n';
-        cudaFree(d_weights);
+    cudaError_t matrix_copy_status = cudaMemcpy(d_matrix, matrix, sizeof(matrix), cudaMemcpyHostToDevice);
+    if (matrix_copy_status != cudaSuccess) {
+        std::cerr << cudaGetErrorString(matrix_copy_status) << '\n';
         cudaFree(d_input);
+        cudaFree(d_matrix);
         cudaFree(d_output);
         return 1;
     }
 
-    
 
-    // Run CUDA kernel
+
     
-    cudaError_t kernel_error = rmsnorm_cuda(d_output, d_input, d_weights, size, epsilon);
+    cudaError_t kernel_error = matvec_cuda(d_output, d_matrix, d_input, rows, cols);
     cudaError_t device_sync = cudaDeviceSynchronize();
     if (kernel_error != cudaSuccess || device_sync != cudaSuccess) {
         std::cerr << cudaGetErrorString(kernel_error) << '\n';
         std::cerr << cudaGetErrorString(device_sync) << '\n';
         cudaFree(d_input);
-        cudaFree(d_weights);
+        cudaFree(d_matrix);
         cudaFree(d_output);
         return 1;
     }
 
 
 
-    // Recover output
-    cudaError_t recover_status = cudaMemcpy(recovered, d_output, size * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaError_t recover_status = cudaMemcpy(recovered, d_output, sizeof(recovered), cudaMemcpyDeviceToHost);
     if (recover_status != cudaSuccess) {
-        std::cerr << cudaGetErrorString(recover_status) << '\n';
+        std::cerr << cudaGetErrorString(recover_status);
         cudaFree(d_input);
-        cudaFree(d_weights);
+        cudaFree(d_matrix);
         cudaFree(d_output);
         return 1;
     }
-    
-    /*
-    for (int j = 0; j < size - 1; j++) {
-        std::cout << recovered[j] << ",\n";
+
+
+
+    for (int i = 0; i < rows; i++) {
+        std::cout << recovered[i] << ", \n";
     }
-    std::cout << recovered[size - 1] << "\n";
-    */
 
 
 
-    // Compare GPU output vs CPU baseline
-    rmsnorm(output, input, weights, size, epsilon);
+    matvec(output, matrix, input, rows, cols);
 
     bool all_passed = true;
     float max_absolute_error = 0;
 
-    for (int i = 0; i < size; i++) {
+    for (int i = 0; i < rows; i++) {
         if (!std::isfinite(output[i]) || !std::isfinite(recovered[i])) {
             all_passed = false;
             std::cout << "Nonfinite result at index " << i
@@ -140,10 +138,8 @@ int main()
     }
 
 
-
-    // Free allocated memory
     cudaError_t free_input_status = cudaFree(d_input);
-    cudaError_t free_weights_status = cudaFree(d_weights);
+    cudaError_t free_matrix_status = cudaFree(d_matrix);
     cudaError_t free_output_status = cudaFree(d_output);
 
     if (free_input_status != cudaSuccess) {
@@ -151,8 +147,8 @@ int main()
         return 1;
     }
     
-    if (free_weights_status != cudaSuccess) {
-        std::cerr << cudaGetErrorString(free_weights_status) << '\n';
+    if (free_matrix_status != cudaSuccess) {
+        std::cerr << cudaGetErrorString(free_matrix_status) << '\n';
         return 1;
     }
     
