@@ -18,6 +18,7 @@ add_executable(
     src/inspect_checkpoint.cpp
     src/mapped_file.cpp
     src/cpu_ops.cpp
+    src/checkpoint.cpp
 )
 
 target_include_directories(
