@@ -78,6 +78,38 @@ __global__ void rmsnorm_kernel(float* output, const float* input, const float* w
     }
 }
 
+// One thread per adjacent pair.  Thread t (flattened over all blocks)
+// owns pair number t of the whole vector:
+//     head = t / pairs_per_head        which head the pair lives in
+//     pair = t % pairs_per_head        pair index inside that head
+// so its two elements are vec[head * head_size + 2 * pair] and the one
+// after it.  Every element belongs to exactly one thread, so reading both
+// into registers and then writing both back is race-free even though the
+// update is in place.
+__global__ void rope_kernel(float* vec, int n_heads, int head_size, const float* cos_row, const float* sin_row)
+{
+    const int pairs_per_head = head_size / 2;
+    const int total_pairs = n_heads * pairs_per_head;
+
+    const int t = blockIdx.x * blockDim.x + threadIdx.x;
+    if (t >= total_pairs) {
+        return;   // the last block is usually only partly filled
+    }
+
+    const int head = t / pairs_per_head;
+    const int pair = t % pairs_per_head;
+    const int base = head * head_size + 2 * pair;
+
+    const float c = cos_row[pair];
+    const float s = sin_row[pair];
+
+    const float a = vec[base];
+    const float b = vec[base + 1];
+
+    vec[base]     = a * c - b * s;
+    vec[base + 1] = a * s + b * c;
+}
+
 
 cudaError_t matvec_cuda(
     float* output,
@@ -101,5 +133,26 @@ cudaError_t rmsnorm_cuda(
 )
 {
     rmsnorm_kernel<<<1, 32>>>(output, input, weights, size, epsilon);
+    return cudaGetLastError();
+}
+
+
+cudaError_t rope_cuda(
+    float* vec,
+    int n_heads,
+    int head_size,
+    const float* cos_row,
+    const float* sin_row
+)
+{
+    const int total_pairs = n_heads * (head_size / 2);
+    if (total_pairs <= 0) {
+        return cudaSuccess;   // nothing to rotate; a 0-block launch is invalid
+    }
+
+    constexpr int block_size = 256;
+    const int blocks = (total_pairs + block_size - 1) / block_size;   // round up
+
+    rope_kernel<<<blocks, block_size>>>(vec, n_heads, head_size, cos_row, sin_row);
     return cudaGetLastError();
 }

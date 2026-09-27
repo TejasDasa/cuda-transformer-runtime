@@ -33,6 +33,9 @@ target_include_directories(test_rmsnorm PRIVATE include)
 add_executable(test_matvec src/test_matvec.cpp src/cpu_ops.cpp)
 target_include_directories(test_matvec PRIVATE include)
 
+add_executable(test_rope src/test_rope.cpp src/cpu_ops.cpp)
+target_include_directories(test_rope PRIVATE include)
+
 add_executable(
     test_rmsnorm_cuda 
     src/test_rmsnorm_cuda.cu
@@ -50,3 +53,23 @@ add_executable(
 )
 
 target_include_directories(test_matvec_cuda PRIVATE include)
+
+add_executable(
+    test_rope_cuda
+    src/test_rope_cuda.cu
+    src/cpu_ops.cpp
+    src/cuda_ops.cu
+)
+
+target_include_directories(test_rope_cuda PRIVATE include)
+
+add_executable(
+    test_layer0_cuda
+    src/test_layer0_cuda.cu
+    src/checkpoint.cpp
+    src/mapped_file.cpp
+    src/cpu_ops.cpp
+    src/cuda_ops.cu
+)
+
+target_include_directories(test_layer0_cuda PRIVATE include)

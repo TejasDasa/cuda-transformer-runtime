@@ -19,4 +19,16 @@ cudaError_t rmsnorm_cuda(
     float epsilon
 );
 
+// In-place RoPE on a device vector of n_heads * head_size floats.
+// cos_row / sin_row are device pointers to the head_size / 2 entries for
+// one token position.  Same semantics as the CPU rope().  Returns the
+// launch status only; the caller synchronises.
+cudaError_t rope_cuda(
+    float* vec,
+    int n_heads,
+    int head_size,
+    const float* cos_row,
+    const float* sin_row
+);
+
 #endif
