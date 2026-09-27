@@ -37,4 +37,57 @@ void rope(
     const float* sin_row
 );
 
+// ---------------------------------------------------------------------
+// KV cache and single-token causal attention.
+// ---------------------------------------------------------------------
+
+// Copies the kv_dim floats of `current` into row `pos` of `cache`, whose
+// layout is [seq_len, kv_dim] (row-major, so row pos begins at
+// pos * kv_dim).  Earlier rows are untouched.  Returns false, writing
+// nothing, if pos is outside [0, seq_len) or kv_dim is not positive.
+bool kv_cache_store(
+    float* cache,
+    const float* current,
+    int kv_dim,
+    int seq_len,
+    int pos
+);
+
+// Numerically stable softmax of n scores:
+//     probs[i] = exp(scores[i] - max) / sum_j exp(scores[j] - max)
+// Subtracting the maximum first keeps every exponent <= 0, so nothing
+// overflows even for very large scores, and the result is identical
+// mathematically because the common factor cancels.
+void softmax(float* probs, const float* scores, int n);
+
+// Causal attention for the single token at position pos.
+//
+//   q       : [n_heads, head_size]            (already rotated by RoPE)
+//   k_cache : [seq_len, n_kv_heads, head_size] rows [0, pos] valid (rotated)
+//   v_cache : [seq_len, n_kv_heads, head_size] rows [0, pos] valid
+//   output  : [n_heads, head_size]
+//   scores  : [n_heads, seq_len] scratch; entries [h, 0..pos] are written
+//   probs   : [n_heads, seq_len] scratch; entries [h, 0..pos] are written
+//
+// For query head h and its KV head kv = h / (n_heads / n_kv_heads):
+//   scores[h, t] = dot(q[h], k_cache[t, kv]) / sqrt(head_size)   t <= pos
+//   probs[h, :]  = softmax(scores[h, 0..pos])
+//   output[h, d] = sum_t probs[h, t] * v_cache[t, kv, d]
+//
+// Only rows 0..pos take part (causal: a token sees itself and the past).
+// Returns false, writing nothing, if the shape is invalid.
+bool attention(
+    float* output,
+    float* scores,
+    float* probs,
+    const float* q,
+    const float* k_cache,
+    const float* v_cache,
+    int n_heads,
+    int n_kv_heads,
+    int head_size,
+    int seq_len,
+    int pos
+);
+
 #endif
