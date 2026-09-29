@@ -147,3 +147,31 @@ bool attention(
 
     return true;
 }
+
+void add_vectors(float* output, const float* a, const float* b, int size)
+{
+    for (int i = 0; i < size; i++) {
+        output[i] = a[i] + b[i];
+    }
+}
+
+float sigmoid(float z)
+{
+    if (z >= 0.0f) {
+        return 1.0f / (1.0f + std::exp(-z));
+    }
+    const float e = std::exp(z);
+    return e / (1.0f + e);
+}
+
+float silu(float z)
+{
+    return z * sigmoid(z);
+}
+
+void silu_gate(float* output, const float* gate, const float* up, int size)
+{
+    for (int i = 0; i < size; i++) {
+        output[i] = silu(gate[i]) * up[i];
+    }
+}

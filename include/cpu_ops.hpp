@@ -90,4 +90,26 @@ bool attention(
     int pos
 );
 
+// ---------------------------------------------------------------------
+// Elementwise operations used by the residual stream and the FFN.
+//
+// Aliasing rule for both functions: `output` may be exactly the same
+// pointer as one of the inputs (true in-place update), because element i
+// of the output depends only on element i of each input.  Buffers that
+// overlap partially (e.g. output = a + 1) are NOT supported.
+// ---------------------------------------------------------------------
+
+// output[i] = a[i] + b[i]
+void add_vectors(float* output, const float* a, const float* b, int size);
+
+// Numerically stable logistic sigmoid.  Both branches only ever call
+// exp() on a non-positive argument, so no finite input overflows.
+float sigmoid(float z);
+
+// SiLU(z) = z * sigmoid(z)
+float silu(float z);
+
+// output[i] = SiLU(gate[i]) * up[i]   (the SwiGLU gating step)
+void silu_gate(float* output, const float* gate, const float* up, int size);
+
 #endif

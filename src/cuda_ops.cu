@@ -417,3 +417,59 @@ cudaError_t attention_cuda(
     return attention_output_cuda(
         output, probs, v_cache, n_heads, n_kv_heads, head_size, seq_len, pos);
 }
+
+
+// =====================================================================
+// Elementwise kernels.  Thread i owns element i and touches nothing
+// else, which is why output == a (or == gate/up) is safe: the read and
+// the write of element i happen in the same thread, read first.
+// =====================================================================
+
+constexpr int kElementwiseBlock = 256;
+
+__global__ void add_vectors_kernel(float* output, const float* a, const float* b, int size)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        output[i] = a[i] + b[i];
+    }
+}
+
+// Stable sigmoid: exp() only ever sees a non-positive argument.
+__device__ float sigmoid_device(float z)
+{
+    if (z >= 0.0f) {
+        return 1.0f / (1.0f + expf(-z));
+    }
+    const float e = expf(z);
+    return e / (1.0f + e);
+}
+
+__global__ void silu_gate_kernel(float* output, const float* gate, const float* up, int size)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        const float g = gate[i];
+        output[i] = g * sigmoid_device(g) * up[i];
+    }
+}
+
+cudaError_t add_vectors_cuda(float* output, const float* a, const float* b, int size)
+{
+    if (size <= 0) {
+        return cudaErrorInvalidValue;
+    }
+    const int blocks = (size + kElementwiseBlock - 1) / kElementwiseBlock;
+    add_vectors_kernel<<<blocks, kElementwiseBlock>>>(output, a, b, size);
+    return cudaGetLastError();
+}
+
+cudaError_t silu_gate_cuda(float* output, const float* gate, const float* up, int size)
+{
+    if (size <= 0) {
+        return cudaErrorInvalidValue;
+    }
+    const int blocks = (size + kElementwiseBlock - 1) / kElementwiseBlock;
+    silu_gate_kernel<<<blocks, kElementwiseBlock>>>(output, gate, up, size);
+    return cudaGetLastError();
+}

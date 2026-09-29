@@ -98,4 +98,16 @@ cudaError_t attention_cuda(
     int pos
 );
 
+// ---------------------------------------------------------------------
+// Elementwise operations (device pointers).  Same aliasing rule as the
+// CPU versions: output may equal one input pointer exactly; partial
+// overlaps are not supported.  One thread per element.
+// ---------------------------------------------------------------------
+
+// output[i] = a[i] + b[i]
+cudaError_t add_vectors_cuda(float* output, const float* a, const float* b, int size);
+
+// output[i] = SiLU(gate[i]) * up[i]
+cudaError_t silu_gate_cuda(float* output, const float* gate, const float* up, int size);
+
 #endif
