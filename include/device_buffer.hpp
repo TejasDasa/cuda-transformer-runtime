@@ -43,6 +43,27 @@ public:
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
 
+    // Moving transfers ownership and leaves the source empty, so a
+    // DeviceBuffer can live inside a std::vector.
+    DeviceBuffer(DeviceBuffer&& other) noexcept
+        : ptr_(other.ptr_), count_(other.count_)
+    {
+        other.ptr_ = nullptr;
+        other.count_ = 0;
+    }
+
+    DeviceBuffer& operator=(DeviceBuffer&& other) noexcept
+    {
+        if (this != &other) {
+            cudaFree(ptr_);
+            ptr_ = other.ptr_;
+            count_ = other.count_;
+            other.ptr_ = nullptr;
+            other.count_ = 0;
+        }
+        return *this;
+    }
+
     float* data() { return ptr_; }
     const float* data() const { return ptr_; }
     std::size_t count() const { return count_; }

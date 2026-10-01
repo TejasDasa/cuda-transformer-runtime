@@ -110,4 +110,15 @@ cudaError_t add_vectors_cuda(float* output, const float* a, const float* b, int 
 // output[i] = SiLU(gate[i]) * up[i]
 cudaError_t silu_gate_cuda(float* output, const float* gate, const float* up, int size);
 
+// x[i] = table[token * dim + i] for i in [0, dim): copies one row of the
+// resident [vocab_count, dim] embedding table into x.  Returns
+// cudaErrorInvalidValue if token is outside [0, vocab_count) or dim <= 0.
+cudaError_t embedding_lookup_cuda(
+    float* x,
+    const float* table,
+    int dim,
+    long long vocab_count,
+    long long token
+);
+
 #endif

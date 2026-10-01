@@ -123,3 +123,34 @@ add_executable(
 )
 
 target_include_directories(test_layer0_forward_cuda PRIVATE include)
+
+add_executable(test_model src/test_model.cpp src/cpu_ops.cpp src/layer_forward.cpp src/model_forward.cpp)
+target_include_directories(test_model PRIVATE include)
+
+add_executable(
+    test_model_cuda
+    src/test_model_cuda.cu
+    src/cpu_ops.cpp
+    src/cuda_ops.cu
+    src/layer_forward.cpp
+    src/layer_forward_cuda.cu
+    src/model_forward.cpp
+    src/model_forward_cuda.cu
+)
+
+target_include_directories(test_model_cuda PRIVATE include)
+
+add_executable(
+    test_model_forward_cuda
+    src/test_model_forward_cuda.cu
+    src/checkpoint.cpp
+    src/mapped_file.cpp
+    src/cpu_ops.cpp
+    src/cuda_ops.cu
+    src/layer_forward.cpp
+    src/layer_forward_cuda.cu
+    src/model_forward.cpp
+    src/model_forward_cuda.cu
+)
+
+target_include_directories(test_model_forward_cuda PRIVATE include)

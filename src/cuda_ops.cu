@@ -473,3 +473,25 @@ cudaError_t silu_gate_cuda(float* output, const float* gate, const float* up, in
     silu_gate_kernel<<<blocks, kElementwiseBlock>>>(output, gate, up, size);
     return cudaGetLastError();
 }
+
+
+// One thread per element of the embedding row.  The row offset is formed
+// in size_t because vocab_count * dim can exceed an int.
+__global__ void embedding_lookup_kernel(float* x, const float* table, int dim, std::size_t row_offset)
+{
+    const int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < dim) {
+        x[i] = table[row_offset + i];
+    }
+}
+
+cudaError_t embedding_lookup_cuda(float* x, const float* table, int dim, long long vocab_count, long long token)
+{
+    if (dim <= 0 || token < 0 || token >= vocab_count) {
+        return cudaErrorInvalidValue;
+    }
+    const std::size_t row_offset = static_cast<std::size_t>(token) * static_cast<std::size_t>(dim);
+    const int blocks = (dim + kElementwiseBlock - 1) / kElementwiseBlock;
+    embedding_lookup_kernel<<<blocks, kElementwiseBlock>>>(x, table, dim, row_offset);
+    return cudaGetLastError();
+}

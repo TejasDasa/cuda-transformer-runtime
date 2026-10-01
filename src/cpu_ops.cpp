@@ -6,13 +6,15 @@
 
 void rmsnorm(float* output, const float* input, const float* weights, int size, float epsilon)
 {
-    float summation = 0.0f;
+    // Accumulate in double so the CPU reference is as exact as the float
+    // inputs allow (the GPU kernel sums in float and is checked against it).
+    double summation = 0.0;
 
     for (int i = 0; i < size; i++) {
-        summation += (input[i] * input[i]);
+        summation += static_cast<double>(input[i]) * input[i];
     }
 
-    float scale = 1.0f / std::sqrt(summation / size + epsilon);
+    const float scale = static_cast<float>(1.0 / std::sqrt(summation / size + epsilon));
 
     for (int i = 0; i < size; i++) {
         output[i] = weights[i] * input[i] * scale;

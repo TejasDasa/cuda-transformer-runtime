@@ -42,24 +42,28 @@ void DeviceLayerWeights::upload(const LayerWeights& host, const LayerShape&)
     w3.upload(host.w3, "upload w3");
 }
 
-DeviceLayerState::DeviceLayerState(const LayerShape& shape)
+DeviceLayerScratch::DeviceLayerScratch(const LayerShape& shape)
     : xn(shape.dim), q(shape.dim), k(shape.kv_dim), v(shape.kv_dim),
       att_out(shape.dim), projected(shape.dim), x_att(shape.dim),
       ffn_norm(shape.dim), h1(shape.hidden_dim), h3(shape.hidden_dim),
       gated(shape.hidden_dim), ffn_out(shape.dim), x_out(shape.dim),
-      k_cache(cache_floats(shape)), v_cache(cache_floats(shape)),
-      scores(scratch_floats(shape)), probs(scratch_floats(shape)),
-      cache(shape.seq_len, shape.kv_dim)
+      scores(scratch_floats(shape)), probs(scratch_floats(shape))
 {
-    // Zero the caches and scratch once so diagnostics never read
-    // uninitialised device memory.
-    check_cuda(cudaMemset(k_cache.data(), 0, k_cache.bytes()), "clear k cache");
-    check_cuda(cudaMemset(v_cache.data(), 0, v_cache.bytes()), "clear v cache");
+    // Zero the attention scratch once so diagnostics never read
+    // uninitialised device memory beyond the causal prefix.
     check_cuda(cudaMemset(scores.data(), 0, scores.bytes()), "clear scores");
     check_cuda(cudaMemset(probs.data(), 0, probs.bytes()), "clear probs");
 }
 
-void DeviceLayerState::reset()
+DeviceKvCache::DeviceKvCache(const LayerShape& shape)
+    : k_cache(cache_floats(shape)), v_cache(cache_floats(shape)),
+      cache(shape.seq_len, shape.kv_dim)
+{
+    check_cuda(cudaMemset(k_cache.data(), 0, k_cache.bytes()), "clear k cache");
+    check_cuda(cudaMemset(v_cache.data(), 0, v_cache.bytes()), "clear v cache");
+}
+
+void DeviceKvCache::reset()
 {
     cache.reset();
 }
@@ -68,7 +72,8 @@ void DeviceLayerState::reset()
 // only after the previous one finished; that is the only ordering the
 // data dependencies need.
 cudaError_t layer_forward_cuda(
-    DeviceLayerState& s,
+    DeviceLayerScratch& s,
+    DeviceKvCache& c,
     const DeviceLayerWeights& w,
     const LayerShape& shape,
     const float* d_x_in,
@@ -78,7 +83,7 @@ cudaError_t layer_forward_cuda(
     float epsilon
 )
 {
-    if (!shape.valid() || !s.cache.accepts(pos)) {
+    if (!shape.valid() || !c.cache.accepts(pos)) {
         return cudaErrorInvalidValue;
     }
 
@@ -100,14 +105,14 @@ cudaError_t layer_forward_cuda(
     if (status != cudaSuccess) return status;
     status = rope_cuda(s.k.data(), shape.n_kv_heads, shape.head_size, d_cos_row, d_sin_row);
     if (status != cudaSuccess) return status;
-    status = kv_cache_store_cuda(s.k_cache.data(), s.k.data(), kv_dim, shape.seq_len, pos);
+    status = kv_cache_store_cuda(c.k_cache.data(), s.k.data(), kv_dim, shape.seq_len, pos);
     if (status != cudaSuccess) return status;
-    status = kv_cache_store_cuda(s.v_cache.data(), s.v.data(), kv_dim, shape.seq_len, pos);
+    status = kv_cache_store_cuda(c.v_cache.data(), s.v.data(), kv_dim, shape.seq_len, pos);
     if (status != cudaSuccess) return status;
-    s.cache.advance();   // row pos is queued for writing before any read of it
+    c.cache.advance();   // row pos is queued for writing before any read of it
 
     status = attention_cuda(s.att_out.data(), s.scores.data(), s.probs.data(),
-                            s.q.data(), s.k_cache.data(), s.v_cache.data(),
+                            s.q.data(), c.k_cache.data(), c.v_cache.data(),
                             shape.n_heads, shape.n_kv_heads, shape.head_size, shape.seq_len, pos);
     if (status != cudaSuccess) return status;
 

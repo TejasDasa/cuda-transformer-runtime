@@ -58,26 +58,31 @@ LayerWeights select_layer_weights(const ModelWeights& weights, const LayerShape&
     return w;
 }
 
-CpuLayerState::CpuLayerState(const LayerShape& shape)
+CpuLayerScratch::CpuLayerScratch(const LayerShape& shape)
     : xn(shape.dim), q(shape.dim), k(shape.kv_dim), v(shape.kv_dim),
       att_out(shape.dim), projected(shape.dim), x_att(shape.dim),
       ffn_norm(shape.dim), h1(shape.hidden_dim), h3(shape.hidden_dim),
       gated(shape.hidden_dim), ffn_out(shape.dim), x_out(shape.dim),
-      k_cache(static_cast<std::size_t>(shape.seq_len) * shape.kv_dim, 0.0f),
-      v_cache(static_cast<std::size_t>(shape.seq_len) * shape.kv_dim, 0.0f),
       scores(static_cast<std::size_t>(shape.n_heads) * shape.seq_len, 0.0f),
-      probs(static_cast<std::size_t>(shape.n_heads) * shape.seq_len, 0.0f),
+      probs(static_cast<std::size_t>(shape.n_heads) * shape.seq_len, 0.0f)
+{
+}
+
+CpuKvCache::CpuKvCache(const LayerShape& shape)
+    : k_cache(static_cast<std::size_t>(shape.seq_len) * shape.kv_dim, 0.0f),
+      v_cache(static_cast<std::size_t>(shape.seq_len) * shape.kv_dim, 0.0f),
       cache(shape.seq_len, shape.kv_dim)
 {
 }
 
-void CpuLayerState::reset()
+void CpuKvCache::reset()
 {
     cache.reset();
 }
 
 bool layer_forward_cpu(
-    CpuLayerState& s,
+    CpuLayerScratch& s,
+    CpuKvCache& c,
     const LayerWeights& w,
     const LayerShape& shape,
     const float* x_in,
@@ -87,7 +92,7 @@ bool layer_forward_cpu(
     float epsilon
 )
 {
-    if (!shape.valid() || !s.cache.accepts(pos)) {
+    if (!shape.valid() || !c.cache.accepts(pos)) {
         return false;
     }
 
@@ -103,14 +108,14 @@ bool layer_forward_cpu(
     rope(s.q.data(), shape.n_heads, shape.head_size, cos_row, sin_row);
     rope(s.k.data(), shape.n_kv_heads, shape.head_size, cos_row, sin_row);
 
-    if (!kv_cache_store(s.k_cache.data(), s.k.data(), kv_dim, shape.seq_len, pos) ||
-        !kv_cache_store(s.v_cache.data(), s.v.data(), kv_dim, shape.seq_len, pos)) {
+    if (!kv_cache_store(c.k_cache.data(), s.k.data(), kv_dim, shape.seq_len, pos) ||
+        !kv_cache_store(c.v_cache.data(), s.v.data(), kv_dim, shape.seq_len, pos)) {
         return false;
     }
-    s.cache.advance();
+    c.cache.advance();
 
     if (!attention(s.att_out.data(), s.scores.data(), s.probs.data(),
-                   s.q.data(), s.k_cache.data(), s.v_cache.data(),
+                   s.q.data(), c.k_cache.data(), c.v_cache.data(),
                    shape.n_heads, shape.n_kv_heads, shape.head_size, shape.seq_len, pos)) {
         return false;
     }

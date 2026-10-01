@@ -72,26 +72,43 @@ LayerWeightCounts layer_weight_counts(const LayerShape& shape);
 // all layers back to back.  Layer 0 is the mapped pointer itself.
 LayerWeights select_layer_weights(const ModelWeights& weights, const LayerShape& shape, int layer);
 
-// Every intermediate of one token step, kept separately so tests can
-// inspect them, plus the per-sequence KV caches and attention scratch.
-struct CpuLayerState {
+// Working vectors for one token step, kept separately so tests can
+// inspect every intermediate.  One scratch set can serve every layer in
+// turn because nothing in it outlives a single layer step.
+struct CpuLayerScratch {
     std::vector<float> xn, q, k, v, att_out, projected, x_att;
     std::vector<float> ffn_norm, h1, h3, gated, ffn_out, x_out;
-    std::vector<float> k_cache, v_cache;   // [seq_len, kv_dim]
     std::vector<float> scores, probs;      // [n_heads, seq_len]
+
+    explicit CpuLayerScratch(const LayerShape& shape);
+};
+
+// One layer's KV caches, [seq_len, kv_dim] each, plus the validity
+// tracker.  Every layer of a model owns one of these.
+struct CpuKvCache {
+    std::vector<float> k_cache, v_cache;
     KvCacheState cache;
 
-    explicit CpuLayerState(const LayerShape& shape);
+    explicit CpuKvCache(const LayerShape& shape);
 
     // Forget the sequence.  Cache bytes stay but none count as valid.
     void reset();
+};
+
+// Convenience bundle for single-layer tests: scratch and cache together.
+struct CpuLayerState : CpuLayerScratch, CpuKvCache {
+    explicit CpuLayerState(const LayerShape& shape)
+        : CpuLayerScratch(shape), CpuKvCache(shape)
+    {
+    }
 };
 
 // Runs one token through one layer.  cos_row / sin_row point at the
 // RoPE table row for `pos`.  Returns false without computing anything
 // if the shape is invalid or pos is not the next cache row.
 bool layer_forward_cpu(
-    CpuLayerState& state,
+    CpuLayerScratch& scratch,
+    CpuKvCache& cache,
     const LayerWeights& w,
     const LayerShape& shape,
     const float* x_in,
@@ -100,5 +117,19 @@ bool layer_forward_cpu(
     int pos,
     float epsilon
 );
+
+inline bool layer_forward_cpu(
+    CpuLayerState& state,
+    const LayerWeights& w,
+    const LayerShape& shape,
+    const float* x_in,
+    const float* cos_row,
+    const float* sin_row,
+    int pos,
+    float epsilon
+)
+{
+    return layer_forward_cpu(state, state, w, shape, x_in, cos_row, sin_row, pos, epsilon);
+}
 
 #endif
